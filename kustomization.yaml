@@ -1,0 +1,5 @@
+commonLabels:
+  app: kubectl-logs-web
+
+resources:
+  - manifest.yml

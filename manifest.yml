@@ -1,0 +1,88 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubectl-logs-web
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: kubectl-logs-web
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: kubectl-logs-web
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubectl-logs-web
+subjects:
+  - name: kubectl-logs-web
+    kind: ServiceAccount
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubectl-logs-web
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: kubeconfig
+          image: alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              apk --no-cache add coreutils && cat | tee /kubeconfig/kubeconfig.yaml <<EOF
+              apiVersion: v1
+              kind: Config
+              clusters:
+              - name: kb
+                cluster:
+                  certificate-authority-data: $(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt | base64 -w 0)
+                  server: https://kubernetes.default
+              users:
+              - name: kb
+                user:
+                  token: $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)    
+              contexts:
+              - name: kb
+                context:
+                  cluster: kb
+                  user: kb
+              current-context: kb
+              EOF
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /kubeconfig
+              subPath: kubeconfig.yaml
+      containers:
+        - name: kubectl-logs-web
+          image: ghcr.io/sim1/kubectl-logs-web
+          env:
+            - { name: KUBECONFIG, value: /kubeconfig/kubeconfig.yaml }
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /kubeconfig
+              subPath: kubeconfig.yaml
+
+      serviceAccountName: kubectl-logs-web
+      volumes:
+        - name: kubeconfig
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubectl-logs-web
+spec:
+  ports:
+    - name: http
+      port: 80
